@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>液氙标定档案 · 密钥轮换控制台</title>
+  <style>
+    :root {
+      --bg: #0b1020; --panel: #141b30; --line: #26304f; --ink: #e8edf7;
+      --muted: #93a0bd; --accent: #5cc8ff; --ok: #4ade80; --warn: #fbbf24;
+      --err: #f87171; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           background: var(--bg); color: var(--ink); }
+    header { padding: 20px 28px; border-bottom: 1px solid var(--line);
+             display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+    header h1 { font-size: 18px; margin: 0; letter-spacing: .5px; }
+    header .sub { color: var(--muted); font-size: 13px; }
+    main { padding: 24px 28px; max-width: 1100px; margin: 0 auto;
+           display: grid; gap: 20px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid var(--line);
+             border-radius: 12px; padding: 18px; }
+    .panel h2 { margin: 0 0 12px; font-size: 14px; color: var(--accent);
+                text-transform: uppercase; letter-spacing: 1px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input, textarea { width: 100%; background: #0d1326; color: var(--ink);
+                      border: 1px solid var(--line); border-radius: 8px;
+                      padding: 9px 11px; font: inherit; }
+    textarea { min-height: 90px; resize: vertical; }
+    button { margin-top: 14px; background: var(--accent); color: #06101f;
+             border: 0; border-radius: 8px; padding: 9px 18px; font-weight: 600;
+             cursor: pointer; }
+    button.secondary { background: #2b3760; color: var(--ink); }
+    button:hover { filter: brightness(1.1); }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+             vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; }
+    code, .mono { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 999px;
+            font-size: 12px; font-weight: 600; }
+    .pill.k { background: #1c3a52; color: var(--accent); }
+    .pill.running { background: #4a3a12; color: var(--warn); }
+    .pill.done { background: #14351f; color: var(--ok); }
+    .progress { height: 8px; background: #0d1326; border-radius: 99px; overflow: hidden;
+                margin-top: 6px; }
+    .progress > i { display: block; height: 100%; background: linear-gradient(90deg,#5cc8ff,#4ade80); }
+    .msg { margin-top: 10px; font-size: 13px; white-space: pre-wrap; }
+    .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+    .keys span { margin-right: 8px; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+<header>
+  <h1>液氙标定档案 · 主密钥轮换控制台</h1>
+  <span class="sub">AES-256-GCM 信封加密 · 崩溃安全逐条重包裹</span>
+  <span class="sub" style="margin-left:auto">当前主密钥：<b id="activeKid">…</b></span>
+</header>
+<main>
+  <div class="grid">
+    <section class="panel">
+      <h2>① 录入标定文本并密封</h2>
+      <label for="calText">标定文本（JSON / 测量记录 / 任意文本）</label>
+      <textarea id="calText" placeholder='{"run":"LXe-2026-09","gain":1.024,"temp_k":165.0}'></textarea>
+      <button id="sealBtn">创建密封记录</button>
+      <div id="sealMsg" class="msg"></div>
+    </section>
+
+    <section class="panel">
+      <h2>② 发起主密钥轮换（稳定操作标识）</h2>
+      <label for="opId">op_id（重传同参 = 重放 / 恢复；异参复用 = 冲突）</label>
+      <input id="opId" value="rot-0001" />
+      <div class="row">
+        <div>
+          <label for="expectedKid">expected_kid（可选，留空表示不校验）</label>
+          <input id="expectedKid" placeholder="例如 1" inputmode="numeric" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="rotBtn">发起 / 重放轮换</button>
+        </div>
+      </div>
+      <div id="rotMsg" class="msg"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>主密钥版本</h2>
+    <div id="keys" class="keys mono">…</div>
+  </section>
+
+  <section class="panel">
+    <h2>轮换进度</h2>
+    <div id="rotations"></div>
+  </section>
+
+  <section class="panel">
+    <h2>密封档案（真实接口读取，展示内容摘要 / 数据密钥包裹版本）</h2>
+    <div style="margin-bottom:10px">
+      <button class="secondary" id="refreshBtn">刷新</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>记录号</th><th>内容摘要 (sha256)</th><th>解密内容</th>
+            <th>DEK 包裹版本</th><th>密封时间</th></tr>
+      </thead>
+      <tbody id="records"><tr><td colspan="5" class="muted">加载中…</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  let body = null;
+  try { body = await res.json(); } catch { /* empty */ }
+  return { ok: res.ok, status: res.status, body };
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function setMsg(el, text, cls) {
+  el.className = "msg " + (cls || "");
+  el.textContent = text;
+}
+
+async function refreshAll() {
+  const [recs, overview] = await Promise.all([
+    api("/api/records"),
+    api("/api/rotations"),
+  ]);
+
+  if (overview.ok) {
+    $("activeKid").textContent = "k" + overview.body.active_kid;
+    $("keys").innerHTML = overview.body.keys.map((k) =>
+      `<span class="pill k">k${k.kid} · ${esc(k.state)}</span>`).join(" ");
+    const rots = overview.body.running;
+    const recent = overview.body.recent || [];
+    const renderRot = (r) => {
+      const pct = r.total ? Math.round(r.rewrapped / r.total * 100) : 100;
+      return `<div style="margin-bottom:14px">
+        <span class="pill ${r.state}">${esc(r.state)}</span>
+        <b class="mono">${esc(r.op_id)}</b>
+        <span class="muted">k${r.from_kid} → k${r.to_kid}
+          · ${r.rewrapped}/${r.total} (${pct}%)</span>
+        <div class="progress"><i style="width:${pct}%"></i></div>
+      </div>`;
+    };
+    if (!recent.length) {
+      $("rotations").innerHTML = '<span class="muted">尚无轮换操作</span>';
+    } else if (!rots.length) {
+      $("rotations").innerHTML = recent.map(renderRot).join("");
+    } else {
+      $("rotations").innerHTML = rots.map(renderRot).join("") +
+        '<div class="muted" style="margin:6px 0">最近完成：</div>' +
+        recent.filter((r) => r.state === "done").map(renderRot).join("");
+    }
+  }
+
+  if (recs.ok) {
+    if (!recs.body.length) {
+      $("records").innerHTML =
+        '<tr><td colspan="5" class="muted">暂无密封记录</td></tr>';
+    } else {
+      $("records").innerHTML = recs.body.map((r) => `
+        <tr>
+          <td class="mono">${esc(r.id)}</td>
+          <td class="mono">${esc(r.digest)}</td>
+          <td><code>${esc(r.content)}</code></td>
+          <td><span class="pill k">${esc(r.wrap_version)}</span>
+              <div class="muted mono" style="margin-top:4px">${esc(r.wrap_tag)}…</div></td>
+          <td class="muted mono">${esc(r.created_at)}</td>
+        </tr>`).join("");
+    }
+  }
+}
+
+$("sealBtn").onclick = async () => {
+  const text = $("calText").value;
+  if (!text.trim()) { setMsg($("sealMsg"), "请先输入标定文本", "err"); return; }
+  const r = await api("/api/records", { method: "POST", body: JSON.stringify({ text }) });
+  if (r.ok) {
+    setMsg($("sealMsg"),
+      `已密封 ${r.body.id}，DEK 由 k${r.body.kid} 包裹，摘要：\n${r.body.digest}`, "ok");
+    $("calText").value = "";
+    refreshAll();
+  } else {
+    setMsg($("sealMsg"), `[${r.status}] ${r.body?.error || "失败"}`, "err");
+  }
+};
+
+$("rotBtn").onclick = async () => {
+  const opId = $("opId").value.trim();
+  const raw = $("expectedKid").value.trim();
+  const payload = { op_id: opId };
+  if (raw) payload.expected_kid = Number(raw);
+  const r = await api("/api/rotations", {
+    method: "POST", body: JSON.stringify(payload),
+  });
+  if (r.ok) {
+    const b = r.body;
+    setMsg($("rotMsg"),
+      b.state === "done"
+        ? `重放完成：${b.op_id} 已完成，k${b.from_kid}→k${b.to_kid}，${b.rewrapped}/${b.total}`
+        : `进行中：${b.op_id} k${b.from_kid}→k${b.to_kid}，${b.rewrapped}/${b.total}`,
+      "ok");
+  } else {
+    setMsg($("rotMsg"),
+      `[${r.status}] ${r.body?.error || "冲突"}\n状态未被推进。`, "err");
+  }
+  refreshAll();
+};
+
+$("refreshBtn").onclick = refreshAll;
+refreshAll();
+setInterval(refreshAll, 3000);
+</script>
+</body>
+</html>

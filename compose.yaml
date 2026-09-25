@@ -1,0 +1,65 @@
+# Liquid xenon calibration archive.
+name: lxe-archive
+#
+# Knobs (host environment overrides):
+#   APP_PORT     container port the console binds (default 8080)
+#   HOST_PORT    published host port (default 8080)
+#   HEALTH_PATH  configurable health endpoint path (default /healthz)
+#
+# Walkthrough:
+#   docker compose up -d --build archive     # serve the console
+#   docker compose run --build verify        # tests + build check + crash/recovery smoke
+#
+services:
+  archive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_PORT: ${APP_PORT:-8080}
+    image: lxe-archive:latest
+    environment:
+      APP_PORT: ${APP_PORT:-8080}
+      HEALTH_PATH: ${HEALTH_PATH:-/healthz}
+      DB_PATH: /data/archive.db
+      ALLOW_FAILPOINT: "1"
+      # Set to "1" to auto-resume an interrupted rotation during process boot;
+      # by default recovery is driven by replaying the same stable op_id.
+      RESUME_ON_BOOT: "0"
+    ports:
+      - "${HOST_PORT:-8080}:${APP_PORT:-8080}"
+    volumes:
+      - archive-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import os,urllib.request,sys
+          url='http://127.0.0.1:'+os.environ.get('APP_PORT','8080')+os.environ.get('HEALTH_PATH','/healthz')
+          sys.exit(0 if urllib.request.urlopen(url, timeout=2).status==200 else 1)
+      interval: 3s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  verify:
+    build:
+      context: .
+      dockerfile: verify/Dockerfile.verify
+    image: lxe-verify:latest
+    depends_on:
+      archive:
+        condition: service_healthy
+    environment:
+      SMOKE_BASE_URL: http://archive:${APP_PORT:-8080}
+      HEALTH_PATH: ${HEALTH_PATH:-/healthz}
+    volumes:
+      # Docker CLI in verify talks to the host daemon for the build check.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: "no"
+
+volumes:
+  archive-data:

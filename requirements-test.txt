@@ -1,0 +1,9 @@
+-r requirements.txt
+idna==3.20
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+pytest==9.1.1
+requests==2.34.2
+urllib3==2.8.0
+charset-normalizer==3.5.1

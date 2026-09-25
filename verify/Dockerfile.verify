@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Static Docker CLI + compose plugin for the "image build check" against the
+# mounted daemon socket. ARCH overrides on aarch64 hosts (ARCH=aarch64).
+ARG DOCKER_VERSION=27.3.1
+ARG COMPOSE_VERSION=2.29.7
+ARG ARCH=x86_64
+ADD https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz /tmp/docker.tgz
+ADD https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${ARCH} /usr/local/lib/docker/cli-plugins/docker-compose
+
+RUN tar -xzf /tmp/docker.tgz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
+    && ln -s /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose \
+    && rm -rf /tmp/docker.tgz /tmp/docker
+
+WORKDIR /workspace
+COPY requirements-test.txt requirements.txt ./
+RUN pip install --no-cache-dir -r requirements-test.txt
+
+COPY compose.yaml Dockerfile ./
+COPY app ./app
+COPY tests ./tests
+COPY verify ./verify
+
+# Runs as root so the mounted docker socket is usable.
+CMD ["sh", "verify/entrypoint.sh"]
