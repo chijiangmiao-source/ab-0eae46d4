@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>液氙标定档案 · 主密钥轮换控制台</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #2d333b; --text: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff; --ok: #3fb950; --warn: #d29922;
+    --err: #f85149; --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border);
+           display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  .badge { font-size: 12px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border); }
+  .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .badge.err { color: var(--err); border-color: var(--err); }
+  .meta { color: var(--muted); font-size: 12px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 24px 60px;
+         display: grid; gap: 20px; }
+  section { background: var(--panel); border: 1px solid var(--border);
+            border-radius: 8px; padding: 16px 20px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--accent); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  input, textarea { width: 100%; background: #0d1117; color: var(--text);
+                    border: 1px solid var(--border); border-radius: 6px;
+                    padding: 8px 10px; font-family: var(--mono); font-size: 13px; }
+  textarea { min-height: 90px; resize: vertical; }
+  button { background: #1f6feb; color: #fff; border: 0; border-radius: 6px;
+           padding: 8px 16px; font-size: 13px; cursor: pointer; margin-top: 10px; }
+  button:hover { background: #388bfd; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text);
+                 padding: 3px 10px; margin: 0; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.mono, .mono { font-family: var(--mono); font-size: 12px; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px;
+         border: 1px solid var(--border); color: var(--muted); }
+  .tag.done { color: var(--ok); border-color: var(--ok); }
+  .tag.pending { color: var(--warn); border-color: var(--warn); }
+  .tag.running { color: var(--accent); border-color: var(--accent); }
+  .progress { height: 8px; background: #0d1117; border-radius: 4px; overflow: hidden;
+              border: 1px solid var(--border); margin: 10px 0 6px; }
+  .progress > div { height: 100%; background: var(--accent); transition: width .3s; }
+  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; padding: 10px 14px;
+           border-radius: 8px; background: var(--panel); border: 1px solid var(--border);
+           display: none; font-size: 13px; white-space: pre-wrap; }
+  #toast.err { border-color: var(--err); color: var(--err); }
+  #toast.ok { border-color: var(--ok); color: var(--ok); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>液氙标定档案 · 主密钥轮换控制台</h1>
+  <span id="health" class="badge">健康检查…</span>
+  <span class="meta" id="master-info"></span>
+</header>
+<main>
+  <section>
+    <h2>创建密封记录</h2>
+    <label for="rec-id">记录标识（留空自动生成）</label>
+    <input id="rec-id" placeholder="例如 run-2026-09-25-led-01">
+    <label for="rec-content">标定文本</label>
+    <textarea id="rec-content" placeholder="例如：LXe 标定源 83mKr，41.5 keV 峰位 512.3 ADC，光电倍增管增益 2.1e6 …"></textarea>
+    <button id="btn-create">密封记录</button>
+  </section>
+
+  <section>
+    <h2>发起主密钥轮换</h2>
+    <div class="row">
+      <div>
+        <label for="rot-op">操作标识（稳定、可重传）</label>
+        <input id="rot-op" placeholder="例如 rotate-2026-09">
+      </div>
+      <div>
+        <label for="rot-target">目标主密钥版本（留空 = 下一版本）</label>
+        <input id="rot-target" type="number" min="1" placeholder="自动">
+      </div>
+    </div>
+    <button id="btn-rotate">发起轮换</button>
+  </section>
+
+  <section id="rotation-panel" style="display:none">
+    <h2>轮换进度</h2>
+    <div id="rotation-info" class="mono"></div>
+    <div class="progress"><div id="rotation-bar" style="width:0%"></div></div>
+    <div id="rotation-items" class="mono meta"></div>
+  </section>
+
+  <section>
+    <h2>档案记录</h2>
+    <table>
+      <thead>
+        <tr><th>记录标识</th><th>内容摘要 (SHA-256)</th><th>包裹版本</th>
+            <th>轮换状态</th><th>创建时间 (UTC)</th><th></th></tr>
+      </thead>
+      <tbody id="records"></tbody>
+    </table>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let toastTimer = null;
+
+function toast(msg, kind) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = kind || "";
+  el.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = "none"; }, 5000);
+}
+
+async function api(path, options) {
+  const resp = await fetch(path, options);
+  let body = null;
+  try { body = await resp.json(); } catch (e) { /* ignore */ }
+  if (!resp.ok) {
+    const detail = body && body.detail ? body.detail : resp.statusText;
+    const err = new Error(detail);
+    err.status = resp.status;
+    err.body = body;
+    throw err;
+  }
+  return body;
+}
+
+function fmtTag(text, cls) {
+  return `<span class="tag ${cls}">${text}</span>`;
+}
+
+async function refresh() {
+  let state;
+  try {
+    state = await api("/api/state");
+    $("health").textContent = "服务正常";
+    $("health").className = "badge ok";
+  } catch (e) {
+    $("health").textContent = "服务不可达";
+    $("health").className = "badge err";
+    return;
+  }
+  const keys = (state.master_keys || [])
+    .map(k => `v${k.version}(${k.status === "active" ? "当前" : "待激活"})`).join(" · ");
+  $("master-info").textContent =
+    `当前主密钥版本 v${state.current_master_version} ｜ 密钥表: ${keys} ｜ 记录数 ${state.record_count}`;
+
+  const rot = state.rotation;
+  const panel = $("rotation-panel");
+  if (rot) {
+    panel.style.display = "block";
+    $("rotation-info").textContent =
+      `操作 ${rot.operation_id}：v${rot.from_version} → v${rot.to_version}，` +
+      `${rot.processed}/${rot.total} 条已重包裹（${rot.percent}%）`;
+    $("rotation-bar").style.width = rot.percent + "%";
+    $("rotation-items").textContent = rot.items
+      .map(i => `${i.record_id}:${i.status === "done" ? "✓" : "…"}`).join("  ");
+  } else if (state.last_rotation) {
+    const last = state.last_rotation;
+    panel.style.display = "block";
+    $("rotation-info").textContent =
+      `最近一次轮换 ${last.operation_id}：v${last.from_version} → v${last.to_version}，` +
+      `${last.processed}/${last.total} 条，状态 ${last.status}`;
+    $("rotation-bar").style.width = last.percent + "%";
+    $("rotation-items").textContent = "";
+  } else {
+    panel.style.display = "none";
+  }
+
+  try {
+    const data = await api("/api/records");
+    const tbody = $("records");
+    tbody.innerHTML = "";
+    for (const rec of data.records) {
+      const tr = document.createElement("tr");
+      const rotTag = rec.rotation_status === "done" ? fmtTag("已重包裹", "done")
+        : rec.rotation_status === "pending" ? fmtTag("待重包裹", "pending")
+        : '<span class="meta">—</span>';
+      tr.innerHTML =
+        `<td class="mono">${rec.id}</td>` +
+        `<td class="mono" title="${rec.digest}">${rec.digest_preview}…</td>` +
+        `<td class="mono">v${rec.wrap_version}</td>` +
+        `<td>${rotTag}</td>` +
+        `<td class="mono">${rec.created_at}</td>` +
+        `<td><button class="ghost" data-verify="${rec.id}">验证</button></td>`;
+      tbody.appendChild(tr);
+    }
+    if (!data.records.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="meta">暂无档案记录</td></tr>';
+    }
+  } catch (e) {
+    toast("加载记录失败: " + e.message, "err");
+  }
+}
+
+$("btn-create").addEventListener("click", async () => {
+  const payload = { content: $("rec-content").value };
+  const rid = $("rec-id").value.trim();
+  if (rid) payload.record_id = rid;
+  try {
+    const rec = await api("/api/records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast(`记录 ${rec.id} 已密封（包裹版本 v${rec.wrap_version}）`, "ok");
+    $("rec-content").value = "";
+    refresh();
+  } catch (e) {
+    toast(`密封失败 (${e.status}): ${e.message}`, "err");
+  }
+});
+
+$("btn-rotate").addEventListener("click", async () => {
+  const op = $("rot-op").value.trim();
+  if (!op) { toast("请填写稳定的操作标识", "err"); return; }
+  const payload = { operation_id: op };
+  const target = $("rot-target").value.trim();
+  if (target) payload.target_version = parseInt(target, 10);
+  try {
+    const rot = await api("/api/rotations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast(`轮换 ${rot.operation_id}：v${rot.from_version} → v${rot.to_version}，状态 ${rot.status}`, "ok");
+    refresh();
+  } catch (e) {
+    toast(`轮换请求被拒绝 (${e.status}): ${e.message}`, "err");
+  }
+});
+
+$("records").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-verify]");
+  if (!btn) return;
+  const rid = btn.getAttribute("data-verify");
+  try {
+    const chk = await api(`/api/records/${encodeURIComponent(rid)}/verify`, { method: "POST" });
+    if (chk.ok) {
+      toast(`记录 ${rid} 校验通过（摘要与关联数据一致，包裹版本 v${chk.wrap_version}）\n内容预览: ${chk.content_preview}`, "ok");
+    } else {
+      toast(`记录 ${rid} 校验失败: ${chk.error || "摘要不一致"}`, "err");
+    }
+  } catch (e) {
+    toast(`验证失败 (${e.status}): ${e.message}`, "err");
+  }
+});
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

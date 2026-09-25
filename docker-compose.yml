@@ -1,0 +1,44 @@
+services:
+  app:
+    build: .
+    image: lx-archive-app
+    environment:
+      APP_PORT: ${APP_PORT:-8080}
+      APP_HOST: 0.0.0.0
+      HEALTH_PATH: ${HEALTH_PATH:-/healthz}
+      DB_PATH: /data/archive.db
+      # Slow the per-record re-wrap slightly so progress is visible in the UI.
+      ROTATION_STEP_DELAY_MS: ${ROTATION_STEP_DELAY_MS:-150}
+    volumes:
+      - archive-data:/data
+    ports:
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS "http://127.0.0.1:$${APP_PORT}$${HEALTH_PATH}" || exit 1
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  verify:
+    build: .
+    image: lx-archive-app
+    command: ["python", "-m", "verify.run"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_BASE_URL: http://app:${APP_PORT:-8080}
+      HEALTH_PATH: ${HEALTH_PATH:-/healthz}
+      E2E_PORT: 18099
+      E2E_WORKDIR: /tmp/lx-e2e
+    volumes:
+      # Lets the verify step run a real `docker build` image check.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: "no"
+
+volumes:
+  archive-data:
